@@ -7,8 +7,10 @@
 #include <dirent.h>
 #include <sys/stat.h>
 #include <fcntl.h>
+#include <time.h>
 
 #define BACKUP_DIR "/home/ldeadlysinx/바탕화면/testbackup"  // 백업 디렉토리 이름
+#define LOG_FILE "/home/ldeadlysinx/바탕화면/testlog/backup.log"
 #define BUFFER_SIZE 1024
 
 volatile sig_atomic_t stop_backup = 0;  // 신호 처리 플래그
@@ -18,6 +20,23 @@ void handle_sigint(int signo) {
     stop_backup = 1;
     printf("신호 확인 백업 중지\n");
 }
+
+// 로그 파일에 기록하는 함수
+void write_log(const char *message) {
+    FILE *log_file = fopen(LOG_FILE, "a");  // 로그 파일을 추가 모드로 열기
+    if (log_file == NULL) {
+        perror("로그 파일을 열 수 없습니다");
+        return;
+    }
+    
+    time_t now = time(NULL);
+    char *time_str = ctime(&now);  // 현재 시간을 문자열로 변환
+    time_str[strlen(time_str) - 1] = '\0';  // 마지막 개행 문자 제거
+
+    fprintf(log_file, "[%s] %s\n", time_str, message);  // 로그 파일에 시간과 메시지 기록
+    fclose(log_file);
+}
+
 
 // 파일 백업 함수 (쓰레드에서 실행될 함수)
 void *backup_file(void *filename) {
@@ -34,12 +53,14 @@ void *backup_file(void *filename) {
     printf("src_path:%s",src_path);
     if (src_file == NULL) {
         perror("파일을 여는데 실패");
+        write_log("파일을 여는데 실패하였습니다.");
         pthread_exit(NULL);
     }
 
     FILE *dest_file = fopen(dest_path, "wb");
     if (dest_file == NULL) {
         perror("백업 파일 만드는데 실패");
+        write_log("백업 파일을 만드는데 실패하였습니다.");
         fclose(src_file);
         pthread_exit(NULL);
     }
@@ -67,11 +88,13 @@ void backup_files(const char *directory) {
     // 백업 디렉토리가 없으면 생성
     if (access(BACKUP_DIR, F_OK) == -1) {
         mkdir(BACKUP_DIR, 0755);
+        write_log("백업 디렉토리를 생성했습니다.");
     }
 
     // 디렉토리 열기
     if ((dir = opendir(directory)) == NULL) {
         perror("디렉토리 여는데 실패");
+         write_log("디렉토리를 여는 데 실패했습니다.");
         exit(EXIT_FAILURE);
     }
 
@@ -87,6 +110,7 @@ void backup_files(const char *directory) {
                 // 파일 백업을 위한 쓰레드 생성
                 if (pthread_create(&threads[thread_count], NULL, backup_file, file_name) != 0) {
                     perror("스레드를 만드는데 에러 발생");
+                    write_log("스레드를 생성하는 중 에러가 발생했습니다.");
                     free(file_name);
                     continue;
                 }
@@ -111,6 +135,8 @@ int main(int argc, char *argv[]) {
 
     // SIGINT 신호 처리기 설정
     signal(SIGINT, handle_sigint);
+    
+    write_log("백업 시스템을 시작했습니다.");
 
     // 백업 시작
     printf("디렉토리에 백업 시작중: %s\n", argv[1]);
@@ -121,9 +147,11 @@ int main(int argc, char *argv[]) {
 
         // 10초 후 다시 백업 수행
         printf("다음 백업 시스템 대기중\n");
+        write_log("다음 백업 주기를 기다리는 중...");
         sleep(10);
     }
 
-    printf("백업 프로세스 삭제중\n");
+    printf("백업 프로세스 kill....\n");
+    write_log("백업 시스템을 종료했습니다.");
     return 0;
 }
