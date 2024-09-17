@@ -13,14 +13,6 @@
 #define LOG_FILE "/home/ldeadlysinx/바탕화면/testlog/backup.log"
 #define BUFFER_SIZE 1024
 
-volatile sig_atomic_t stop_backup = 0;  // 신호 처리 플래그
-
-// SIGINT 핸들러 함수: 백업 중지 플래그 설정
-void handle_sigint(int signo) {
-    stop_backup = 1;
-    printf("신호 확인 백업 중지\n");
-}
-
 // 로그 파일에 기록하는 함수
 void write_log(const char *message) {
     FILE *log_file = fopen(LOG_FILE, "a");  // 로그 파일을 추가 모드로 열기
@@ -36,6 +28,57 @@ void write_log(const char *message) {
     fprintf(log_file, "[%s] %s\n", time_str, message);  // 로그 파일에 시간과 메시지 기록
     fclose(log_file);
 }
+
+pid_t backup_pid = -1;  // backup 프로세스의 PID를 저장하는 전역 변수
+
+// backup 실행 함수
+void execute_backup() {
+    backup_pid = fork();  // 자식 프로세스 생성
+
+    if (backup_pid == 0) {
+        // 자식 프로세스에서 backup 실행
+        execl("./backup", "backup", NULL);  // ./backup 파일을 실행
+        perror("백업 실행 실패");
+        write_log("백업 실행 실패");
+        exit(EXIT_FAILURE);  // backup 실행 실패 시 종료
+    } else if (backup_pid > 0) {
+        printf("백업 프로그램 실행 중 (PID: %d)\n", backup_pid);
+        write_log("백업 프로그램 실행중");
+    } else {
+        perror("fork 실패");
+        write_log("fork 실패");
+    }
+}
+
+// backup 중단 함수
+void backup_stopped() {
+    if (backup_pid > 0) {
+        if (kill(backup_pid, SIGTERM) == 0) {
+            printf("백업 프로그램 중단 요청 (PID: %d)\n", backup_pid);
+            waitpid(backup_pid, NULL, 0);  // 자식 프로세스가 완전히 종료될 때까지 대기
+            write_log("백업 프로그램 중단");
+            backup_pid = -1;  // PID 초기화
+        } else {
+            perror("백업 중단 실패");
+            write_log("백업 중단 실패");
+        }
+    } else {
+        printf("백업 프로그램이 실행 중이 아닙니다.\n");
+        write_log("백업 프로그램 실행중이 아닙니다.");
+    }
+}
+
+
+volatile sig_atomic_t stop_backup = 0;  // 신호 처리 플래그
+
+// SIGINT 핸들러 함수: 백업 중지 플래그 설정
+void handle_sigint(int signo) {
+    stop_backup = 1;
+    printf("신호 확인 백업 중지\n");
+    write_log("신호 확인 백업 중지.");
+}
+
+
 
 
 // 파일 백업 함수 (쓰레드에서 실행될 함수)
